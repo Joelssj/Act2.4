@@ -162,7 +162,7 @@ html_template = '''
   <body>
     <header>
       <div class="container">
-        <h1>Analizador Léxico, Sintáctico y Semántico</h1>
+        <h1> ** Analizador Léxico, Sintáctico y Semántico **</h1>
       </div>
     </header>
     <div id="main-content" class="container">
