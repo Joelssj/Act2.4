@@ -1,5 +1,7 @@
 from flask import Flask, request, render_template_string
 import re
+import ply.lex as lex
+import ply.yacc as yacc
 
 app = Flask(__name__)
 
@@ -10,6 +12,72 @@ TOKENS = {
     'SYM': r'[;{}()\[\]=<>!+-/*]',
     'ERR': r'.'
 }
+
+# Define the lexer
+tokens = ('PR', 'ID', 'NUM', 'SYM', 'ERR', 'INT', 'SYSTEM', 'OUT', 'PRINTLN', 'LE', 'PLUSPLUS', 'STRING')
+
+t_PR = r'\b(for|if|else|while|return)\b'
+t_ID = r'\b[a-zA-Z_][a-zA-Z_0-9]*\b'
+t_NUM = r'\b\d+\b'
+t_LE = r'<='
+t_PLUSPLUS = r'\+\+'
+t_STRING = r'\".*?\"'
+t_ignore = ' \t'
+
+def t_INT(t):
+    r'\bint\b'
+    return t
+
+def t_SYSTEM(t):
+    r'\bSystem\b'
+    return t
+
+def t_OUT(t):
+    r'\bout\b'
+    return t
+
+def t_PRINTLN(t):
+    r'\bprintln\b'
+    return t
+
+def t_SYM(t):
+    r'[;{}()\[\]=<>!+\-/*]'
+    return t
+
+def t_ERR(t):
+    r'.'
+    return t
+
+def t_newline(t):
+    r'\n+'
+    t.lexer.lineno += len(t.value)
+
+def t_error(t):
+    t.lexer.skip(1)
+
+lexer = lex.lex()
+
+# Define the parser
+def p_statement_for(p):
+    'statement : PR "(" INT ID "=" NUM ";" ID LE NUM ";" ID PLUSPLUS ")" "{" statement_block "}"'
+    p[0] = 'Sintaxis correcta'
+
+def p_statement_block(p):
+    '''statement_block : statement
+                       | statement statement_block'''
+    p[0] = p[1]
+
+def p_statement_print(p):
+    'statement : SYSTEM "." OUT "." PRINTLN "(" STRING ")" ";"'
+    p[0] = 'Sintaxis correcta'
+
+def p_error(p):
+    if p:
+        print(f"Error de sintaxis en '{p.value}'")
+    else:
+        print("Error de sintaxis en el final del archivo")
+
+parser = yacc.yacc()
 
 html_template = '''
 <!doctype html>
@@ -144,44 +212,37 @@ def analyze_lexical(code):
         rows.append(row)
     return rows, results
 
-def correct_syntactic(code):
-    corrected_code = re.sub(r'\bfor\s*\(\s*.*\s*\)\s*\{', r'for (int i = 1; i <= 19; i++) {', code)
-    corrected_code = re.sub(r'\{.*\}', r'{\n    System.out.println("hola");\n}', corrected_code, flags=re.DOTALL)
+def correct_syntactic(code, var_name):
+    corrected_code = re.sub(r'\bfor\s*\(\s*.*?\s*=\s*.*?\s*;\s*.*?\s*<=\s*.*?\s*;\s*.*?\s*\)\s*\{', 
+                            f'for (int {var_name} = 1; {var_name} <= 19; {var_name}++) {{', code)
+    corrected_code = re.sub(r'\{.*\}', r'{\n    System.out.println("Este es el correcto");\n}', corrected_code, flags=re.DOTALL)
     return corrected_code
 
 def correct_semantic(code):
-    corrected_code = re.sub(r'\bSystem\.out\.println\s*\(.*\)\s*;', r'System.out.println("hola");', code)
+    corrected_code = re.sub(r'\bSystem\.out\.println\s*\(.*\)\s*;', r'System.out.println("Este es el correcto");', code)
     return corrected_code
 
 def analyze_syntactic(code):
+    syntactic_errors = []
+    semantic_errors = []
     corrected_code = code
-    errors = []
-
-    if not re.search(r'\bfor\s*\(\s*int\s+\w+\s*=\s*\d+\s*;\s*\w+\s*<=\s*\d+\s*;\s*\w+\+\+\s*\)\s*\{', code):
-        errors.append("Error en la sintaxis del bucle 'for'. Asegúrate de declarar el tipo de variable correctamente, por ejemplo: 'for (int i = 1; i <= 19; i++) {'.")
-        corrected_code = correct_syntactic(corrected_code)
-
-    if not re.search(r'\{\s*\n\s*System\.out\.println\s*\(\s*".*"\s*\)\s*;\s*\n\s*\}', code):
-        errors.append("Error en el cuerpo del bucle 'for'. Asegúrate de usar 'System.out.println()' correctamente y de que las llaves estén bien colocadas.")
-        corrected_code = correct_syntactic(corrected_code)
-
-    if not errors:
-        return "Sintaxis correcta", corrected_code
+    
+    match = re.search(r'\bfor\s*\(\s*int\s+(\w+)\s*=\s*\d+\s*;\s*\1\s*<=\s*\d+\s*;\s*\1\+\+\s*\)\s*\{', code)
+    if not match:
+        syntactic_errors.append("Error en la sintaxis del bucle 'for'.")
+        corrected_code = correct_syntactic(corrected_code, "i")
     else:
-        return " ".join(errors), corrected_code
+        var_name = match.group(1)
+        corrected_code = correct_syntactic(corrected_code, var_name)
 
-def analyze_semantic(code):
-    errors = []
     if not re.search(r'\bSystem\.out\.println\s*\(\s*".*"\s*\)\s*;', code):
-        errors.append("Error semántico en System.out.println. Asegúrate de usar 'System.out.println()' correctamente con comillas dobles para las cadenas.")
-        corrected_code = correct_semantic(code)
-    else:
-        corrected_code = code
+        semantic_errors.append("Error semántico en System.out.println.")
+        corrected_code = correct_semantic(corrected_code)
+    
+    syntactic_result = "Sintaxis correcta" if not syntactic_errors else " ".join(syntactic_errors)
+    semantic_result = "Uso correcto" if not semantic_errors else " ".join(semantic_errors)
 
-    if not errors:
-        return "Uso correcto de System.out.println", corrected_code
-    else:
-        return " ".join(errors), corrected_code
+    return syntactic_result, semantic_result, corrected_code
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -194,8 +255,7 @@ def index():
     if request.method == 'POST':
         code = request.form['code']
         lexical_results, total_results = analyze_lexical(code)
-        syntactic_result, corrected_code = analyze_syntactic(code)
-        semantic_result, corrected_code = analyze_semantic(corrected_code)
+        syntactic_result, semantic_result, corrected_code = analyze_syntactic(code)
     return render_template_string(html_template, code=code, lexical=lexical_results, total=total_results, syntactic=syntactic_result, semantic=semantic_result, corrected_code=corrected_code)
 
 if __name__ == '__main__':
